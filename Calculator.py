@@ -48,9 +48,6 @@ def Eq_fix(run_string):
 		run_string = run_string.replace(")8", ")*8")
 		run_string = run_string.replace(")9", ")*9")
 		run_string = run_string.replace("Factorial", "factorial")
-#	res = [int(i) for i in run_string.split() if i.isdigit()] 
-#	for x in res:
-#		run_string = run_string.replace(x, "dec("+x+")")
 	return run_string
 def getcalc():
 	clear()
@@ -63,17 +60,15 @@ def getcalc():
 		final_ans = eval(calc_str)
 		clear()
 	except FloatingPointError:
-		print("ERROR:")
-		print("Floating Point Operation Failed")
+		print("ERROR:FloatingPointError")
 	except MemoryError:
-		print("ERROR:")
-		print("Not enough Memory")
+		print("ERROR:MemoryError")
 	except OverflowError:
-		print("ERROR:")
-		print("Overflow")
+		print("ERROR:OverflowError")
 	except ZeroDivisionError:
-		print("ERROR:")
-		print("Cannot Divide by 0")
+		print("ERROR:ZeroDivisionError")
+	except all:
+		print("ERROR")
 	else:
 		tend = time.perf_counter()
 		print("Result")
