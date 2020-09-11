@@ -123,7 +123,7 @@ def progress_bar(opsq, progress, start_time, bar_size, finished, action):
 
 
 def checkstr(chckstr):
-	checkfor = ["sys", "os.", "system", "multiprocessing", "platorm", "imort", "exec", "eval", ";"]
+	checkfor = ["sys", "os.", "system", "multiprocessing", "platform", "imort", "exec", "eval", ";"]
 	for _ in chckstr:
 		chckstr = chckstr.replace("^","**")
 		chckstr = chckstr.replace("xx", "x*x")
