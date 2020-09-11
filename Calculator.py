@@ -1,218 +1,194 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2020 Benjamin Yao
 import os
+import sys
 import platform
 import time
-import math
+import multiprocessing
+from multiprocessing import Queue, Process, Manager
 from decimal import *
 from decimal import Decimal as dec
-precision = 768
+
+# Precision of Calculator
+# Increasing will reult in longer wait times
+precision = 2560
+core_count = os.cpu_count()
+
 getcontext().prec = precision
-def clear():
-    if platform.system() == 'Windows':
-        os.system('cls')
-    else:
-        os.system('clear')
-def wait():
-	wait = str(input("Press enter to exit..."))
-def factorial(x):
-    ans = 1
-    for fac in range(x,1,-1):
-        ans *= fac
-    x = ans
-    return x
-def sqrt(x):
-	ans = dec(x)**dec((dec(1))/dec(2))
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
+
+base10 = list(range(10))
+
+def npfactorial(x):
+	ans = 1
+	for mul in range(1,x+1):
+		ans *= mul
 	return ans
-def abs(x):
-	if x < 0:
-		ans = x * -1
-	else:
-		ans = x
-	return ans
-def ceil(x):
-	ans = int(int(x) + 1)
-	return ans
-def floor(x):
-	ans = int(x)
-	return ans
-def constant(precision):
-	print("Loading Constants...")
-	global pi
-	global e
-	pi = 0
-	e = 0
-	for x in range(0,precision): 
-		pi += dec((dec(1) / dec(16) ** dec(x)) * (dec(4) / (dec(8) * x + dec(1)) - dec(2) / (dec(8) * x + dec(4)) - dec(1) / (dec(8) * x + dec(5)) - dec(1) / (dec(8) * x + dec(6))))
-	pi = dec(int(pi * dec(10 ** precision)) / dec(10 ** precision))
-	for x in range(0,precision + 64):
-		e += dec(dec(1) / dec(factorial(int(x))))
-	e = dec(int(e * dec(10 ** precision)) / dec(10 ** precision))
-def bernoulli(n):
-    A = [0] * (n+1)
-    for m in range(n+1):
-        A[m] = dec(1)/(m+dec(1))
-        for j in range(m, 0, -1):
-          A[j-1] = j*(A[j-1] - A[j])
-    return A[0]
-# Taylor series Expansion of Trigonomic functions
+
+def multi_sin(x, start_var, var, sin_ans, progress):
+	ans = 0
+	for k in range(start_var - 1, precision + 1, var):
+		progress.put_nowait(0)
+		ans += (dec(-1)**k)*(x**(dec(1)+dec(2)*k))/npfactorial(1+2*k)
+	sin_ans.put_nowait(ans)
 def sin(x):
+	action.put("Sin")
+	opsq.put_nowait(precision)
 	ans = 0
-	for n in range(0,int(precision)+int(abs(x))):
-	 	ans += dec((dec(-1)**n)*x**(dec(2)*n+dec(1)))/dec(factorial(2*n+1))
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
+	sin_manager = Manager()
+	sin_ans = sin_manager.Queue()
+	for num in range(1,core_count+1):
+		progress.put_nowait(0)
+		sin_worker = Process(target=multi_sin, args=(x, num, core_count, sin_ans, progress))
+		sin_worker.start()
+	while not core_count <= sin_ans.qsize():
+		time.sleep(0.001)
+	for num in range(core_count):
+		sin_worker.terminate()
+		sin_worker.join(timeout=0.01)
+		ans += sin_ans.get_nowait()
 	return ans
+
+def multi_cos(x, start_var, var, cos_ans, progress):
+	ans = 0
+	for k in range(start_var - 1, precision + 1, var):
+		progress.put_nowait(0)
+		ans += (dec(-1)**k)*(x**(dec(2)*k))/npfactorial(2*k)
+	cos_ans.put_nowait(ans)
 def cos(x):
+	action.put("Cos")
+	opsq.put_nowait(precision)
 	ans = 0
-	for n in range(0,int(precision)+int(abs(x))):
-	 	ans += dec((dec(-1)**n)*x**(dec(2)*n))/dec(factorial(2*n))
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
+	cos_manager = Manager()
+	cos_ans = cos_manager.Queue()
+	for num in range(1,core_count+1):
+		cos_worker = Process(target=multi_cos, args=(x, num, core_count, cos_ans, progress))
+		cos_worker.start()
+	while not core_count <= cos_ans.qsize():
+		time.sleep(0.001)
+	for num in range(core_count):
+		cos_worker.terminate()
+		cos_worker.join(timeout=0.01)
+		ans += cos_ans.get_nowait()
 	return ans
+
 def tan(x):
-	ans = sin(x)/cos(x)
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
+	return sin(x)/cos(x)
+
+def multi_factorial(x, start_var, var, factorial_ans, progress):
+	ans = 1
+	for k in range(start_var, x + 1, var):
+		ans *= k
+		progress.put_nowait(0)
+	factorial_ans.put_nowait(ans)
+def factorial(x):
+	action.put("Factorial")
+	opsq.put_nowait(int(x))
+	ans = 1
+	factorial_manager = Manager()
+	factorial_ans = factorial_manager.Queue()
+	for num in range(1,core_count+1):
+		factorial_worker = Process(target=multi_factorial, args=(x, num, core_count, factorial_ans, progress))
+		factorial_worker.start()
+	while not core_count <= factorial_ans.qsize():
+		time.sleep(0.001)
+	action.put("Factorial Multiplication")	
+	for num in range(core_count):
+		factorial_worker.terminate()
+		factorial_worker.join(timeout=0.01)
+		ans *= factorial_ans.get_nowait()
 	return ans
-def arcsin(x):
-	ans = 0
-	for n in range(0,int(precision)+int(x)):
-		ans += dec(factorial(2*n))*x**dec(dec(2)*n+dec(1))/dec(4)**n*dec(factorial(n))**dec(2)*dec(dec(2)*n+dec(1))
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
-	return ans
-def arccos(x):
-	pass
-def arctan(x):
-	pass
-def sinh(x):
-	ans = (e**x-e**(-x))/dec(2)
-	return ans
-def cosh(x):
-	ans = (e**x+e**(-x))/dec(2)
-	return ans
-def tanh(x):
-	ans = (e**x-e**(-x))/((e**x)+e**(-x))
-	return ans
-def coth(x):
-	ans = (e**x+e**-x)/(e**x-e**-x)
-	return ans
-def sech(x):
-	ans = dec(2)/(e**x+e**-x)
-	return ans
-def csch(x):
-	ans = dec(2)/(e**x-e**-x)
-	return ans
-def arcsinh(x):
-	pass
-def arccosh(x):
-	pass
-def arctanh(x):
-	pass
-def sec(x):
-	ans = dec(1)/cos(x)
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
-	return ans
-def csc(x):
-	ans = dec(1)/sin(x)
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
-	return ans
-def cot(x):
-	ans = dec(1)/tan(x)
-	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
-	return ans
-def arcsec(x):
-	pass
-def arccsc(x):
-	pass
-def arccot(x):
-	pass
-def arcsech(x):
-	pass
-def arccsch(x):
-	pass
-def arccoth(x):
-	pass
-# Incomplete WIP
-# Error Function
-def erf(z):
-#	ans = 0
-#	for n in range(0,precision+int(z)+1000):
-#		ans += dec((dec(-1)**n)*z**dec(2)*n+dec(1))/dec(factorial(n))*(dec(2)*n+dec(1))
-#	ans = ans*(dec(2)/sqrt(pi))
-#	ans = dec(int(ans * dec(10 ** precision)) / dec(10 ** precision))
-#	return ans
-	pass
-def exp(x):
-	ans = e**x
-	return ans
-# Gamma Function
-pass
-# Finite Integral
-def fnint(var,eq,min,max):
-	pass
-def Eq_fix(run_string):
-	for x in range(1, len(run_string)):
-		run_string = run_string.replace("^","**")
-		run_string = run_string.replace("xx", "x*x")
-		run_string = run_string.replace("0(", "0*(")
-		run_string = run_string.replace("1(", "1*(")
-		run_string = run_string.replace("2(", "2*(")
-		run_string = run_string.replace("3(", "3*(")
-		run_string = run_string.replace("4(", "4*(")
-		run_string = run_string.replace("5(", "5*(")
-		run_string = run_string.replace("6(", "6*(")
-		run_string = run_string.replace("7(", "7*(")
-		run_string = run_string.replace("8(", "8*(")
-		run_string = run_string.replace("9(", "9*(")
-		run_string = run_string.replace(")0", ")*0")
-		run_string = run_string.replace(")1", ")*1")
-		run_string = run_string.replace(")2", ")*2")
-		run_string = run_string.replace(")3", ")*3")
-		run_string = run_string.replace(")4", ")*4")
-		run_string = run_string.replace(")5", ")*5")
-		run_string = run_string.replace(")6", ")*6")
-		run_string = run_string.replace(")7", ")*7")
-		run_string = run_string.replace(")8", ")*8")
-		run_string = run_string.replace(")9", ")*9")
-		run_string = run_string.replace("Factorial", "factorial")
-		run_string = run_string.replace("Pi", "pi")
-		run_string = run_string.replace("PI", "pi")
-		run_string = run_string.replace("E", "e")
-		run_string = run_string.replace("Euler", "e")
-		run_string = run_string.replace("euler", "e")
-# Section for future string corrections
-	return run_string
-def getcalc():
-	clear()
-	calc_str = str(input(":"))
-	tstart = time.perf_counter()
-	calc_str = Eq_fix(calc_str)
-	clear()
-	print("Calculating...")
-	try:
-		final_ans = dec(eval(calc_str))
-		clear()
-	except FloatingPointError:
-		print("ERROR:FloatingPointError")
-	except MemoryError:
-		print("ERROR:MemoryError")
-	except OverflowError:
-		print("ERROR:OverflowError")
-	except ZeroDivisionError:
-		print("ERROR:ZeroDivisionError")
-	except all:
-		print("ERROR")
-	else:
-		tend = time.perf_counter()
-		print("Result")
-		tstart_copy = time.perf_counter()
-		print(final_ans)
-		tend_copy = time.perf_counter()
-		print("\n")
-		print(calc_str)
-		print("\n")
-		print("Compute time:",'%.4f'%(tend - tstart),"Seconds")
-		print("I/O time:",'%.4f'%(tend_copy - tstart_copy),"Seconds")
-		print("Total time:",'%.4f'%(tend - tstart + tend_copy - tstart_copy),"Seconds")
-constant(precision)
-getcalc()
-wait()
+
+def progress_bar(opsq, progress, start_time, bar_size, finished, action):
+	ops = 1
+	cur_act = ""
+	while finished.empty():
+		try:
+			while not action.empty():
+				cur_act = action.get_nowait()
+		except:
+			pass
+		try:
+			while not opsq.empty():
+				ops += int(opsq.get_nowait())
+		except:
+			pass
+		inc = ops // bar_size
+		complete = progress.qsize() // inc
+		print(f"|{'█'*complete if complete <= bar_size else '█'*bar_size}{'='*(bar_size - complete)}| "+'%.2f'%(progress.qsize()/ops*100 if progress.qsize()/ops*100 <= 100 else 100) +f"%  Current: {cur_act} in "+'%.1f'%(time.time() - start_time)+"s"+" "*bar_size, end="\r\r")
+	while not finished.empty():
+		finished.get_nowait()
+	while not progress.empty():
+		progress.get_nowait()
+	ops = 1
+
+
+def checkstr(chckstr):
+	checkfor = ["sys", "os.", "system", "multiprocessing", "platorm", "imort", "exec", "eval", ";"]
+	for _ in chckstr:
+		chckstr = chckstr.replace("^","**")
+		chckstr = chckstr.replace("xx", "x*x")
+		chckstr = chckstr.replace("0(", "0*(")
+		chckstr = chckstr.replace("1(", "1*(")
+		chckstr = chckstr.replace("2(", "2*(")
+		chckstr = chckstr.replace("3(", "3*(")
+		chckstr = chckstr.replace("4(", "4*(")
+		chckstr = chckstr.replace("5(", "5*(")
+		chckstr = chckstr.replace("6(", "6*(")
+		chckstr = chckstr.replace("7(", "7*(")
+		chckstr = chckstr.replace("8(", "8*(")
+		chckstr = chckstr.replace("9(", "9*(")
+		chckstr = chckstr.replace(")0", ")*0")
+		chckstr = chckstr.replace(")1", ")*1")
+		chckstr = chckstr.replace(")2", ")*2")
+		chckstr = chckstr.replace(")3", ")*3")
+		chckstr = chckstr.replace(")4", ")*4")
+		chckstr = chckstr.replace(")5", ")*5")
+		chckstr = chckstr.replace(")6", ")*6")
+		chckstr = chckstr.replace(")7", ")*7")
+		chckstr = chckstr.replace(")8", ")*8")
+		chckstr = chckstr.replace(")9", ")*9")
+		chckstr = chckstr.replace("Factorial", "factorial")
+		chckstr = chckstr.replace("Pi", "pi")
+		chckstr = chckstr.replace("PI", "pi")
+		chckstr = chckstr.replace("E", "e")
+		chckstr = chckstr.replace("Euler", "e")
+		chckstr = chckstr.replace("euler", "e")
+	if any([x in chckstr for x in checkfor]):
+		raise Exception("Illegal")
+	return chckstr
+
+def main():
+	os.system('')
+	global progress
+	global opsq
+	global action
+	progress = Queue()
+	opsq = Queue()
+	finished = Queue()
+	action = Queue()
+	run = True
+	bar_size = 75
+	while run:
+		try:
+			print(">>> "+" "*(bar_size+255), end="\r")
+			equation_str = checkstr(str(input("\033[A>>> ")))
+			if equation_str == "":
+				continue
+			start_time = time.time()
+			prog_bar = Process(target=progress_bar, args=(opsq, progress, start_time, bar_size, finished, action))
+			prog_bar.start()
+			ans = eval(equation_str)
+			finished.put_nowait(0)
+			time.sleep(0.05)
+			print(ans)
+			prog_bar.join(timeout=0.01)
+		except Exception as ex:
+			print(ex)
+			continue
+		except KeyboardInterrupt:
+			sys.exit(0)
+
+if __name__ == "__main__":
+	main()
+
+
