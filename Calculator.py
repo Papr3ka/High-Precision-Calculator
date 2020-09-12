@@ -11,18 +11,76 @@ from decimal import Decimal as dec
 
 # Precision of Calculator
 # Increasing will reult in longer wait times
-precision = 2560
+precision = 2048
 core_count = os.cpu_count()
 
 getcontext().prec = precision
 
 base10 = list(range(10))
 
+class cache:
+	def __init__(self):
+		self.ans_cache = dict()
+	def add_result(self, func, param, result):
+		self.ans_cache.update({result:{func:param}})
+	def lookup(self, func, param):
+		for results in self.ans_cache:
+			try:
+				if self.ans_cache[results][func] == param:
+					return results
+			except KeyError:
+				pass
+		return None
+
+cache = cache()
 def npfactorial(x):
 	ans = 1
 	for mul in range(1,x+1):
 		ans *= mul
 	return ans
+
+def multi_pi(start_var, var, pi_ans):
+	pi = 0
+	for x in range(start_var - 1, precision, var):
+		pi += dec(1) / dec(16) ** dec(x) * (dec(4) / (dec(8) * x + dec(1)) - dec(2) / (dec(8) * x + dec(4)) - dec(1) / (dec(8) * x + dec(5)) - dec(1) / (dec(8) * x + dec(6)))
+	pi_ans.put(pi)
+def calc_pi():
+	ans = 0
+	pi_manager = Manager()
+	pi_ans = pi_manager.Queue()
+	for num in range(1,core_count+1):
+		pi_worker = Process(target=multi_pi, args=(num, core_count, pi_ans))
+		pi_worker.start()
+	while not core_count <= pi_ans.qsize():
+		time.sleep(0.001)
+	for num in range(core_count):
+		pi_worker.terminate()
+		pi_worker.join(timeout=0.01)
+		ans += pi_ans.get_nowait()
+	finish.put_nowait(0)
+	return ans
+
+def multi_e(start_var, var, e_ans):
+	e = 0
+	for x in range(start_var - 1, precision, var):
+		e += dec(1) / dec(npfactorial(x))
+	e_ans.put(e)
+def calc_e():
+	ans = 0
+	e_manager = Manager()
+	e_ans = e_manager.Queue()
+	for num in range(1,core_count+1):
+		e_worker = Process(target=multi_e, args=(num, core_count, e_ans))
+		e_worker.start()
+	while not core_count <= e_ans.qsize():
+		time.sleep(0.001)
+	for num in range(core_count):
+		e_worker.terminate()
+		e_worker.join(timeout=0.01)
+		ans += e_ans.get_nowait()
+	finish.put_nowait(0)
+	return ans
+
 
 def multi_sin(x, start_var, var, sin_ans, progress):
 	ans = 0
@@ -31,6 +89,8 @@ def multi_sin(x, start_var, var, sin_ans, progress):
 		ans += (dec(-1)**k)*(x**(dec(1)+dec(2)*k))/npfactorial(1+2*k)
 	sin_ans.put_nowait(ans)
 def sin(x):
+	if not cache.lookup('sin', x) == None:
+		return cache.lookup('sin', x)
 	action.put("Sin")
 	opsq.put_nowait(precision)
 	ans = 0
@@ -46,6 +106,8 @@ def sin(x):
 		sin_worker.terminate()
 		sin_worker.join(timeout=0.01)
 		ans += sin_ans.get_nowait()
+	finish.put_nowait(0)
+	cache.add_result('sin',x,ans)
 	return ans
 
 def multi_cos(x, start_var, var, cos_ans, progress):
@@ -55,6 +117,8 @@ def multi_cos(x, start_var, var, cos_ans, progress):
 		ans += (dec(-1)**k)*(x**(dec(2)*k))/npfactorial(2*k)
 	cos_ans.put_nowait(ans)
 def cos(x):
+	if not cache.lookup('cos', x) == None:
+		return cache.lookup('cos', x)
 	action.put("Cos")
 	opsq.put_nowait(precision)
 	ans = 0
@@ -69,10 +133,16 @@ def cos(x):
 		cos_worker.terminate()
 		cos_worker.join(timeout=0.01)
 		ans += cos_ans.get_nowait()
+	finish.put_nowait(0)
+	cache.add_result('cos',x,ans)
 	return ans
 
 def tan(x):
-	return sin(x)/cos(x)
+	if not cache.lookup('tan', x) == None:
+		return cache.lookup('tan', x)
+	ans = sin(x)/cos(x)
+	cache.add_result('tan',x,ans)
+	return ans
 
 def multi_factorial(x, start_var, var, factorial_ans, progress):
 	ans = 1
@@ -81,6 +151,8 @@ def multi_factorial(x, start_var, var, factorial_ans, progress):
 		progress.put_nowait(0)
 	factorial_ans.put_nowait(ans)
 def factorial(x):
+	if not cache.lookup('factorial', x) == None:
+		return cache.lookup('factorial', x)
 	action.put("Factorial")
 	opsq.put_nowait(int(x))
 	ans = 1
@@ -96,30 +168,32 @@ def factorial(x):
 		factorial_worker.terminate()
 		factorial_worker.join(timeout=0.01)
 		ans *= factorial_ans.get_nowait()
+	finish.put_nowait(0)
+	cache.add_result('factorial',x,ans)
 	return ans
 
-def progress_bar(opsq, progress, start_time, bar_size, finished, action):
+def progress_bar(opsq, progress, start_time, bar_size, finished, action, remain, finish):
 	ops = 1
 	cur_act = ""
 	while finished.empty():
 		try:
 			while not action.empty():
 				cur_act = action.get_nowait()
-		except:
-			pass
-		try:
 			while not opsq.empty():
 				ops += int(opsq.get_nowait())
 		except:
 			pass
-		inc = ops // bar_size
-		complete = progress.qsize() // inc
-		print(f"|{'█'*complete if complete <= bar_size else '█'*bar_size}{'='*(bar_size - complete)}| "+'%.2f'%(progress.qsize()/ops*100 if progress.qsize()/ops*100 <= 100 else 100) +f"%  Current: {cur_act} in "+'%.1f'%(time.time() - start_time)+"s"+" "*bar_size, end="\r\r")
+		try:
+			complete = progress.qsize() // (ops // bar_size)
+		except ZeroDivisionError:
+			return
+		print(f"|\033[107m{'█'*complete if complete <= bar_size else '█'*bar_size}\033[0m{'='*(bar_size - complete)}| "+'%.2f'%(progress.qsize()/ops*100 if progress.qsize()/ops*100 <= 100 else 100) +f"%  [Current: {cur_act}, Remaining: {remain-finish.qsize()-1}] Elapsed: "+'%.1f'%(time.time() - start_time)+"s"+" "*bar_size, end="\r")
+	print(' '*(bar_size+255),end="\r\033[A")
 	while not finished.empty():
 		finished.get_nowait()
 	while not progress.empty():
 		progress.get_nowait()
-	ops = 1
+	del ops
 
 
 def checkstr(chckstr):
@@ -159,31 +233,41 @@ def checkstr(chckstr):
 
 def main():
 	os.system('')
-	global progress
 	global opsq
 	global action
-	progress = Queue()
+	global finish
 	opsq = Queue()
 	finished = Queue()
 	action = Queue()
+	finish = Queue()
 	run = True
-	bar_size = 75
+	bar_size = 32
+	pi = calc_pi()
+	e = calc_e()
 	while run:
 		try:
-			print(">>> "+" "*(bar_size+255), end="\r")
-			equation_str = checkstr(str(input("\033[A>>> ")))
+			global progress
+			progress = Queue()
+			equation_str = checkstr(str(input(r">>> ")))
+			todo_q = equation_str.count("sin")+equation_str.count("cos")+equation_str.count("tan")*2+equation_str.count("factorial")
 			if equation_str == "":
 				continue
-			start_time = time.time()
-			prog_bar = Process(target=progress_bar, args=(opsq, progress, start_time, bar_size, finished, action))
-			prog_bar.start()
-			ans = eval(equation_str)
-			finished.put_nowait(0)
-			time.sleep(0.05)
-			print(ans)
-			prog_bar.join(timeout=0.01)
+			elif equation_str == "exit":
+				sys.exit(0)
+			else:
+				start_time = time.time()
+				prog_bar = Process(target=progress_bar, args=(opsq, progress, start_time, bar_size, finished, action, todo_q, finish))
+				prog_bar.start()
+				ans = eval(equation_str)
+				finished.put_nowait(0)
+				time.sleep(0.05)
+				print(ans)
+				prog_bar.join(timeout=0.01)
+				del progress
+				while not finish.empty():
+					finish.get_nowait()
 		except Exception as ex:
-			print(ex)
+			print(str(ex))
 			continue
 		except KeyboardInterrupt:
 			sys.exit(0)
