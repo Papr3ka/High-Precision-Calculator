@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2020 Benjamin Yao
 import os
-import sys
-import platform
 import time
 import multiprocessing
 from multiprocessing import Queue, Process, Manager
@@ -11,7 +9,7 @@ from decimal import Decimal as dec
 
 # Precision of Calculator
 # Increasing will reult in longer wait times
-precision = 2048
+precision = 1024
 core_count = os.cpu_count()
 
 getcontext().prec = precision
@@ -57,7 +55,6 @@ def calc_pi():
 		pi_worker.terminate()
 		pi_worker.join(timeout=0.01)
 		ans += pi_ans.get_nowait()
-	finish.put_nowait(0)
 	return ans
 
 def multi_e(start_var, var, e_ans):
@@ -78,7 +75,6 @@ def calc_e():
 		e_worker.terminate()
 		e_worker.join(timeout=0.01)
 		ans += e_ans.get_nowait()
-	finish.put_nowait(0)
 	return ans
 
 
@@ -90,6 +86,7 @@ def multi_sin(x, start_var, var, sin_ans, progress):
 	sin_ans.put_nowait(ans)
 def sin(x):
 	if not cache.lookup('sin', x) == None:
+		finish.put_nowait(0)
 		return cache.lookup('sin', x)
 	action.put("Sin")
 	opsq.put_nowait(precision)
@@ -118,6 +115,7 @@ def multi_cos(x, start_var, var, cos_ans, progress):
 	cos_ans.put_nowait(ans)
 def cos(x):
 	if not cache.lookup('cos', x) == None:
+		finish.put_nowait(0)
 		return cache.lookup('cos', x)
 	action.put("Cos")
 	opsq.put_nowait(precision)
@@ -139,10 +137,43 @@ def cos(x):
 
 def tan(x):
 	if not cache.lookup('tan', x) == None:
+		finish.put_nowait(0)
 		return cache.lookup('tan', x)
 	ans = sin(x)/cos(x)
 	cache.add_result('tan',x,ans)
 	return ans
+
+# Work in progress for asin acos atan
+
+# def multi_asin(x, start_var, var, asin_ans, progress):
+#     ans = 0
+#     for k in range(start_var - 1, precision + 1, var):
+#         progress.put_nowait(0)
+#         ans += 
+#     asin_ans.put_nowait(ans)
+# def asin(x):
+#     if not cache.lookup('asin', x) == None:
+#         finish.put_nowait(0)
+#         return cache.lookup('asin', x)
+#     action.put("asin")
+#     opsq.put_nowait(precision)
+#     ans = 0
+#     asin_manager = Manager()
+#     asin_ans = asin_manager.Queue()
+#     for num in range(1,core_count+1):
+#         progress.put_nowait(0)
+#         asin_worker = Process(target=multi_asin, args=(x, num, core_count, asin_ans, progress))
+#         asin_worker.start()
+#     while not core_count <= asin_ans.qsize():
+#         time.sleep(0.001)
+#     for num in range(core_count):
+#         asin_worker.terminate()
+#         asin_worker.join(timeout=0.01)
+#         ans += asin_ans.get_nowait()
+#     finish.put_nowait(0)
+#     cache.add_result('asin',x,ans)
+#     return ans
+
 
 def multi_factorial(x, start_var, var, factorial_ans, progress):
 	ans = 1
@@ -152,6 +183,7 @@ def multi_factorial(x, start_var, var, factorial_ans, progress):
 	factorial_ans.put_nowait(ans)
 def factorial(x):
 	if not cache.lookup('factorial', x) == None:
+		finish.put_nowait(0)
 		return cache.lookup('factorial', x)
 	action.put("Factorial")
 	opsq.put_nowait(int(x))
@@ -173,6 +205,8 @@ def factorial(x):
 	return ans
 
 def progress_bar(opsq, progress, start_time, bar_size, finished, action, remain, finish):
+	load_char = ">" # ► █ > | # $
+	color_code = 42 # ANSI
 	ops = 1
 	cur_act = ""
 	while finished.empty():
@@ -187,7 +221,7 @@ def progress_bar(opsq, progress, start_time, bar_size, finished, action, remain,
 			complete = progress.qsize() // (ops // bar_size)
 		except ZeroDivisionError:
 			return
-		print(f"|\033[107m{'█'*complete if complete <= bar_size else '█'*bar_size}\033[0m{'='*(bar_size - complete)}| "+'%.2f'%(progress.qsize()/ops*100 if progress.qsize()/ops*100 <= 100 else 100) +f"%  [Current: {cur_act}, Remaining: {remain-finish.qsize()-1}] Elapsed: "+'%.1f'%(time.time() - start_time)+"s"+" "*bar_size, end="\r")
+		print(f"|\033[{color_code}m{load_char*complete if complete <= bar_size else load_char*bar_size}\033[0m{'='*(bar_size - complete)}| "+'%.2f'%(progress.qsize()/ops*100 if progress.qsize()/ops*100 <= 100 else 100) +f"%  [Current: {cur_act}, Remaining: {remain-finish.qsize()-1 if remain-finish.qsize()-1>= 0 else 0}] Elapsed: "+'%.1f'%(time.time() - start_time)+"s"+" "*bar_size, end="\r")
 	print(' '*(bar_size+255),end="\r\033[A")
 	while not finished.empty():
 		finished.get_nowait()
@@ -261,9 +295,10 @@ def main():
 				ans = eval(equation_str)
 				finished.put_nowait(0)
 				time.sleep(0.05)
-				print(ans)
+				if not ans == None:
+					print(ans)
 				prog_bar.join(timeout=0.01)
-				del progress
+				del progress # Deleting and recreating fixes many problems
 				while not finish.empty():
 					finish.get_nowait()
 		except Exception as ex:
