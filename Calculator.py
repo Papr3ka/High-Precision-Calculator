@@ -10,7 +10,7 @@ from decimal import Decimal as dec
 
 # Precision of Calculator
 # Increasing will reult in longer wait times
-precision = 2048
+precision = 2000
 core_count = os.cpu_count()
 
 getcontext().prec = precision
@@ -215,6 +215,7 @@ def progress_bar(opsq, progress, start_time, bar_size, finished, action, remain,
 	while not progress.empty():
 		progress.get_nowait()
 	del ops
+	
 
 def checkstr(chckstr):
 	checkfor = ["sys", "os.", "system", "multiprocessing", "platform", "import", "exec", "eval", ";"]
@@ -262,6 +263,7 @@ def main():
 	bar_size = 32
 	while run:
 		try:
+			time.sleep(0.25)
 			global progress
 			progress = Queue()
 			equation_str = checkstr(str(input(">>> ")))
@@ -286,18 +288,17 @@ def main():
 					euler = calc_euler()
 
 				ans = eval(equation_str) # Cant use eval to run malicious code
-
+				time.sleep(0.1)
+				prog_bar.join(timeout=0.1)
 				if not ans == None:
 					print(ans)
-				time.sleep(0.1)
 				finished.put_nowait(0)
-				prog_bar.join(timeout=0.01)
 				del progress # Deleting and recreating fixes many problems
 				while not finish.empty():
 					finish.get_nowait()
+				continue
 		except Exception as ex:
 			print(str(ex))
-			print(' '*(bar_size+255),end="\r\033[A")
 			continue
 		except KeyboardInterrupt:
 			sys.exit(0)
